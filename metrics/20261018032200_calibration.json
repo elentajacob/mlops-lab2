@@ -1,0 +1,25 @@
+{
+    "timestamp": "20261018032200",
+    "source_model": "model_20261018032200_nb_model.joblib",
+    "best_method": "isotonic",
+    "results": {
+        "uncalibrated": {
+            "accuracy": 0.8222,
+            "log_loss": 3.8718,
+            "brier_score": 0.3516,
+            "ece": 0.1776
+        },
+        "sigmoid": {
+            "accuracy": 0.8222,
+            "log_loss": 0.7719,
+            "brier_score": 0.3046,
+            "ece": 0.1093
+        },
+        "isotonic": {
+            "accuracy": 0.875,
+            "log_loss": 0.741,
+            "brier_score": 0.2321,
+            "ece": 0.0654
+        }
+    }
+}
