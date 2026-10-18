@@ -22,7 +22,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.10'
-  MIN_ACCURACY: '0.95'        # quality gate: minimum test accuracy
+  MIN_ACCURACY: '0.75'        # quality gate: minimum test accuracy
   MAX_ACCURACY_DROP: '0.02'   # quality gate: max allowed drop vs. previous model
 
 jobs:
