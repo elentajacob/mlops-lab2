@@ -1,84 +1,72 @@
-# from sklearn.datasets import fetch_rcv1
-import mlflow, datetime, os, pickle, random
-# import sklearn
-from joblib import dump
-from sklearn.datasets import make_classification
-from sklearn.metrics import accuracy_score, f1_score
-import sys
-from sklearn.ensemble import RandomForestClassifier
 import argparse
+import json
+import os
 
-sys.path.insert(0, os.path.abspath('..'))
+import joblib
+import mlflow
+from sklearn.metrics import accuracy_score, f1_score
+from sklearn.naive_bayes import GaussianNB
+
+from ml_utils import load_data, split_data, dataset_statistics
+
+MODEL_DIR = "models"
+METRICS_DIR = "metrics"
 
 
-if __name__ == '__main__':
+def train_model(X_train, y_train):
+    model = GaussianNB()
+    model.fit(X_train, y_train)
+    return model
 
+
+def main(timestamp):
+    print(f"Timestamp received from GitHub Actions: {timestamp}")
+
+    X, y = load_data()
+    stats = dataset_statistics(X, y)
+    print("Dataset statistics:", json.dumps(stats, indent=2))
+
+    X_train, X_cal, X_test, y_train, y_cal, y_test = split_data(X, y)
+    model = train_model(X_train, y_train)
+
+    y_pred = model.predict(X_train)
+    train_metrics = {
+        "train_accuracy": round(float(accuracy_score(y_train, y_pred)), 4),
+        "train_f1_macro": round(float(f1_score(y_train, y_pred, average="macro")), 4),
+    }
+    print("Training metrics:", train_metrics)
+
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(METRICS_DIR, exist_ok=True)
+
+    model_path = os.path.join(MODEL_DIR, f"model_{timestamp}_nb_model.joblib")
+    joblib.dump(model, model_path)
+    print(f"Model saved to {model_path}")
+
+    stats_path = os.path.join(METRICS_DIR, f"{timestamp}_dataset_stats.json")
+    with open(stats_path, "w") as f:
+        json.dump({
+            "timestamp": timestamp,
+            "dataset": stats,
+            "split_sizes": {"train": len(y_train), "calibration": len(y_cal), "test": len(y_test)},
+        }, f, indent=4)
+
+    # Track the run with MLflow (stored locally in ./mlruns, uploaded as a workflow artifact)
+    mlflow.set_tracking_uri("./mlruns")
+    mlflow.set_experiment("Digits_GaussianNB")
+    with mlflow.start_run(run_name=f"train_{timestamp}"):
+        mlflow.log_params({
+            "dataset": "sklearn digits",
+            "model": "GaussianNB",
+            "n_train": len(y_train),
+            "n_features": X.shape[1],
+            "n_classes": stats["n_classes"],
+        })
+        mlflow.log_metrics(train_metrics)
+        mlflow.set_tag("timestamp", timestamp)
+
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--timestamp", type=str, required=True, help="Timestamp from GitHub Actions")
-    args = parser.parse_args()
-    
-    # Access the timestamp
-    timestamp = args.timestamp
-    
-    # Use the timestamp in your script
-    print(f"Timestamp received from GitHub Actions: {timestamp}")
-    
-    # Check if the file exists within the folder
-    X, y = make_classification(
-                            n_samples=random.randint(0, 2000),
-                            n_features=6,
-                            n_informative=3,
-                            n_redundant=0,
-                            n_repeated=0,
-                            n_classes=2,
-                            random_state=0,
-                            shuffle=True,
-                        )
-    if os.path.exists('data'): 
-        with open('data/data.pickle', 'wb') as data:
-            pickle.dump(X, data)
-            
-        with open('data/target.pickle', 'wb') as data:
-            pickle.dump(y, data)  
-    else:
-        os.makedirs('data/')
-        with open('data/data.pickle', 'wb') as data:
-            pickle.dump(X, data)
-            
-        with open('data/target.pickle', 'wb') as data:
-            pickle.dump(y, data)  
-            
-    mlflow.set_tracking_uri("./mlruns")
-    dataset_name = "Reuters Corpus Volume"
-    current_time = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-    experiment_name = f"{dataset_name}_{current_time}"    
-    experiment_id = mlflow.create_experiment(f"{experiment_name}")
-
-    with mlflow.start_run(experiment_id=experiment_id,
-                        run_name= f"{dataset_name}"):
-        
-        params = {
-                    "dataset_name": dataset_name,
-                    "number of datapoint": X.shape[0],
-                    "number of dimensions": X.shape[1]}
-        
-        mlflow.log_params(params)
-            
-        
-        forest = RandomForestClassifier(random_state=0)
-        forest.fit(X, y)
-        
-        y_predict = forest.predict(X)
-        mlflow.log_metrics({'Accuracy': accuracy_score(y, y_predict),
-                            'F1 Score': f1_score(y, y_predict)})
-        
-        if not os.path.exists('models/'): 
-            # then create it.
-            os.makedirs("models/")
-            
-        # After retraining the model
-        model_version = f'model_{timestamp}'  # Use a timestamp as the version
-        model_filename = f'{model_version}_dt_model.joblib'
-        dump(forest, model_filename)
-                    
-
+    main(parser.parse_args().timestamp)
