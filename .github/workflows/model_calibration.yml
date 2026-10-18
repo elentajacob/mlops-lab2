@@ -1,0 +1,48 @@
+name: Model Calibration
+
+# Runs automatically right after "Model Retraining on Push" succeeds,
+# so it always calibrates the model version that was just committed.
+on:
+  workflow_run:
+    workflows: ["Model Retraining on Push"]
+    types: [completed]
+  workflow_dispatch:   # manual "Run workflow" button
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-pipeline
+  cancel-in-progress: false
+
+jobs:
+  calibrate:
+    # Skip if retraining failed or the quality gate rejected the model
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest main (includes the newly versioned model)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Calibrate latest model
+        run: python src/calibrate_model.py
+
+      - name: Commit and push calibrated model and report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add models/ metrics/
+          git commit -m "Calibrated latest model version"
+          git pull --rebase
+          git push

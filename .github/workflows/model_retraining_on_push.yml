@@ -1,0 +1,92 @@
+name: Model Retraining on Push
+
+on:
+  push:
+    branches: [main]
+    # Only retrain when something that affects the model changes.
+    # README / screenshot pushes do NOT trigger a retrain.
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'requirements.txt'
+      - '.github/workflows/**'
+  workflow_dispatch:   # manual "Run workflow" button
+
+permissions:
+  contents: write      # lets the workflow commit models/ and metrics/ back to the repo
+
+# Never let two pipeline runs push to the repo at the same time
+concurrency:
+  group: model-pipeline
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.10'
+  MIN_ACCURACY: '0.75'        # quality gate: minimum test accuracy
+  MAX_ACCURACY_DROP: '0.02'   # quality gate: max allowed drop vs. previous model
+
+jobs:
+  # ---------- Job 1: unit tests ----------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m pytest test/ -v
+
+  # ---------- Job 2: train, evaluate, gate, version ----------
+  train-and-evaluate:
+    needs: test          # only runs if every test passed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate and store timestamp
+        run: echo "TIMESTAMP=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
+
+      - name: Train model
+        run: python src/train_model.py --timestamp "$TIMESTAMP"
+
+      - name: Evaluate model and apply quality gate
+        run: |
+          python src/evaluate_model.py --timestamp "$TIMESTAMP" \
+            --min-accuracy "$MIN_ACCURACY" --max-drop "$MAX_ACCURACY_DROP"
+
+      - name: Upload MLflow runs and metrics (even if the gate fails)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ env.TIMESTAMP }}
+          path: |
+            mlruns/
+            metrics/${{ env.TIMESTAMP }}_*.json
+
+      - name: Commit and push the new model version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add models/ metrics/
+          git commit -m "Model version ${TIMESTAMP} (passed quality gate)"
+          git pull --rebase
+          git push
