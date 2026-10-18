@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from pathlib import Path
 
 import joblib
 import mlflow
@@ -51,8 +52,11 @@ def main(timestamp):
             "split_sizes": {"train": len(y_train), "calibration": len(y_cal), "test": len(y_test)},
         }, f, indent=4)
 
-    # Track the run with MLflow (stored locally in ./mlruns, uploaded as a workflow artifact)
-    mlflow.set_tracking_uri("./mlruns")
+    # Track the run with MLflow (stored locally in ./mlruns, uploaded as a workflow artifact).
+    # A full file:// path (not "./mlruns") so MLflow never reuses a stale relative location.
+    mlruns_dir = Path("mlruns").resolve()
+    mlruns_dir.mkdir(exist_ok=True)
+    mlflow.set_tracking_uri(mlruns_dir.as_uri())
     mlflow.set_experiment("Digits_GaussianNB")
     with mlflow.start_run(run_name=f"train_{timestamp}"):
         mlflow.log_params({
